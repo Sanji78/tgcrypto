@@ -1,28 +1,56 @@
-name: Build wheels
+name: wheels
 
-on: [push]
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
 
 jobs:
-  build_wheels:
-    name: Build wheels on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+  build:
+    runs-on: ubuntu-latest
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-
+        arch: [x86_64, aarch64]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v2.11.2
+        uses: pypa/cibuildwheel@v2.21.3
         env:
-          CIBW_ARCHS_MACOS: "x86_64 universal2 arm64"
-          CIBW_TEST_REQUIRES: tox
-          CIBW_TEST_COMMAND: cd {project} && tox
-          CIBW_TEST_SKIP: "*-win*"
-          CIBW_BUILD_VERBOSITY: 1
+          CIBW_ARCHS_LINUX: ${{ matrix.arch }}
+          CIBW_BUILD: "cp313-*"
+          CIBW_SKIP: "*-musllinux_*"
+          CIBW_MANYLINUX_X86_64_IMAGE: "manylinux2014"
+          CIBW_MANYLINUX_AARCH64_IMAGE: "manylinux2014"
 
-      - name: Store wheels
-        uses: actions/upload-artifact@v2
+      - name: Upload wheel artifacts
+        uses: actions/upload-artifact@v4
         with:
-          path: ./wheelhouse/*.whl
+          name: wheels-${{ matrix.arch }}
+          path: wheelhouse/*.whl
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Collect wheels
+        run: |
+          mkdir -p upload
+          find dist -name "*.whl" -exec cp -v {} upload/ \;
+          ls -la upload
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: upload
