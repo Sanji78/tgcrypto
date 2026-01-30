@@ -50,6 +50,17 @@ jobs:
           find dist -name "*.whl" -exec cp -v {} upload/ \;
           ls -la upload
 
+      - name: Debug PYPI_API_TOKEN presence
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.PYPI_API_TOKEN }}" ]; then
+            echo "PYPI_API_TOKEN is MISSING in this workflow run"
+            exit 1
+          fi
+          echo "PYPI_API_TOKEN is present (length=${#TOKEN})"
+        env:
+          TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
