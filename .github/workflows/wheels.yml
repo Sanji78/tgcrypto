@@ -7,62 +7,53 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build_wheels:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         arch: [x86_64, aarch64]
+
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
-      - name: Build wheels
+      - name: Build wheels (musllinux)
         uses: pypa/cibuildwheel@v2.21.3
         env:
-          CIBW_ARCHS_LINUX: ${{ matrix.arch }}
-          CIBW_BUILD: "cp313-*"
-          CIBW_SKIP: "*-musllinux_*"
-          CIBW_MANYLINUX_X86_64_IMAGE: "manylinux2014"
-          CIBW_MANYLINUX_AARCH64_IMAGE: "manylinux2014"
+          CIBW_BUILD: "cp313-musllinux_${{ matrix.arch }}"
+          CIBW_ARCHS_LINUX: "${{ matrix.arch }}"
+          CIBW_TEST_SKIP: "*"
 
-      - name: Upload wheel artifacts
-        uses: actions/upload-artifact@v4
+          # deps needed to compile tgcrypto in musllinux container
+          CIBW_BEFORE_ALL_LINUX: >
+            apk add --no-cache
+            build-base
+            linux-headers
+            python3-dev
+        # if tgcrypto needs openssl headers too, add: openssl-dev
+
+      - uses: actions/upload-artifact@v4
         with:
           name: wheels-${{ matrix.arch }}
           path: wheelhouse/*.whl
 
   publish:
-    needs: build
+    needs: build_wheels
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
-      - name: Download wheel artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
+          pattern: wheels-*
           path: dist
-
-      - name: Collect wheels
-        run: |
-          mkdir -p upload
-          find dist -name "*.whl" -exec cp -v {} upload/ \;
-          ls -la upload
-
-      - name: Debug PYPI_API_TOKEN presence
-        shell: bash
-        run: |
-          if [ -z "${{ secrets.PYPI_API_TOKEN }}" ]; then
-            echo "PYPI_API_TOKEN is MISSING in this workflow run"
-            exit 1
-          fi
-          echo "PYPI_API_TOKEN is present (length=${#TOKEN})"
-        env:
-          TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+          merge-multiple: true
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
+          user: __token__
           password: ${{ secrets.PYPI_API_TOKEN }}
-          packages-dir: upload
+          packages-dir: dist
